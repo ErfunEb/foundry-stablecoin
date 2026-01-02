@@ -42,7 +42,13 @@ contract DSCEngine is ReentrancyGuard {
     address[] private collateralTokens;
 
     event CollateralDeposited(
-        address indexed sender,
+        address indexed user,
+        address indexed token,
+        uint256 amount
+    );
+
+    event CollateralRedeemed(
+        address indexed user,
         address indexed token,
         uint256 amount
     );
@@ -132,9 +138,38 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function redeemCollateralForDsc() external {}
+    function redeemCollateralForDsc(
+        address tokenCollateralAddress,
+        uint256 amountCollateral,
+        uint256 amountDscToMint
+    ) external {
+        burnDsc(amountDscToMint);
+        redeemCollateral(tokenCollateralAddress, amountCollateral);
+    }
 
-    function redeemCollateral() external {}
+    function redeemCollateral(
+        address tokenCollateralAddress,
+        uint256 amountCollateral
+    ) public moreThanZero(amountCollateral) nonReentrant {
+        collateralDeposited[msg.sender][
+            tokenCollateralAddress
+        ] -= amountCollateral;
+
+        emit CollateralRedeemed(
+            msg.sender,
+            tokenCollateralAddress,
+            amountCollateral
+        );
+
+        bool success = IERC20(tokenCollateralAddress).transfer(
+            msg.sender,
+            amountCollateral
+        );
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     /*
      * @param amountDscToMint The amount of centralized stablecoin to mint
@@ -152,7 +187,23 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function burnDsc() external {}
+    function burnDsc(
+        uint256 amountDscToBurn
+    ) public moreThanZero(amountDscToBurn) nonReentrant {
+        dscMinted[msg.sender] -= amountDscToBurn;
+        bool success = DSC.transferFrom(
+            msg.sender,
+            address(this),
+            amountDscToBurn
+        );
+
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+
+        DSC.burn(amountDscToBurn);
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     function liquidate() external {}
 
