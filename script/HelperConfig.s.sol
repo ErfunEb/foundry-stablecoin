@@ -6,6 +6,7 @@ import {Script} from "forge-std/Script.sol";
 // import {DSCEngine} from "src/DSCEngine.sol";
 import {MockV3Aggregator} from "test/mocks/MockV3Aggregator.sol";
 import {Token} from "src/Token.sol";
+import {console} from "forge-std/console.sol";
 
 // import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
@@ -62,6 +63,8 @@ contract HelperConfig is Script {
         );
         Token wbtcMock = new Token("Wrapped BTC", "WBTC");
         vm.stopBroadcast();
+
+        console.log("Actual WETH: ", address(wethMock));
 
         return
             NetworkConfig({

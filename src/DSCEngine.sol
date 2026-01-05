@@ -63,7 +63,7 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     modifier isAllowedToken(address token) {
-        _isAllowedToken(priceFeeds[token]);
+        _isAllowedToken(token);
         _;
     }
 
@@ -349,5 +349,11 @@ contract DSCEngine is ReentrancyGuard {
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert DSCEngine__BreaksHealthFactor(userHealthFactor);
         }
+    }
+
+    function getAccountInformation(
+        address user
+    ) external view returns (uint256, uint256) {
+        return _getAccountInformation(user);
     }
 }
