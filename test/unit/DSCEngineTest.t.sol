@@ -6,8 +6,8 @@ import {DeployDSC} from "script/DeployDSC.s.sol";
 import {HelperConfig} from "script/HelperConfig.s.sol";
 import {DecentralizedStableCoin} from "src/DecentralizedStableCoin.sol";
 import {DSCEngine} from "src/DSCEngine.sol";
-import {Token} from "src/Token.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
+import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 
 contract DSCEngineTest is Test {
     DeployDSC deployer;
@@ -31,10 +31,8 @@ contract DSCEngineTest is Test {
         (ethUsdPriceFeed, btcUsdPriceFeed, weth, , deployerAddress) = config
             .activeNetworkConfig();
 
-        // console.log("WETH: ", weth);
-
         vm.prank(deployerAddress);
-        Token(weth).mint(user, AMOUNT_COLLATERAL);
+        ERC20Mock(weth).mint(user, AMOUNT_COLLATERAL);
     }
 
     function testGetUsdValue() public view {
@@ -46,7 +44,7 @@ contract DSCEngineTest is Test {
 
     function testRevertsIfCollateralIsZero() public {
         vm.startPrank(user);
-        Token(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
+        ERC20Mock(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
 
         vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
         dscEngine.depositCollateral(weth, 0);
@@ -75,7 +73,7 @@ contract DSCEngineTest is Test {
 
     function testRevertsWithUnapprovedCollateral() public {
         vm.prank(user);
-        Token someToken = new Token("Some Token", "ST");
+        ERC20Mock someToken = new ERC20Mock("Some Token", "ST");
 
         vm.startPrank(user);
         vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);

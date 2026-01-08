@@ -21,13 +21,13 @@ contract DeployDSC is Script {
             address wbtcUsdPriceFeed,
             address weth,
             address wbtc,
-
+            address deployerAddress
         ) = config.activeNetworkConfig();
 
         tokenAddresses = [weth, wbtc];
         priceFeedAddresses = [wethUsdPriceFeed, wbtcUsdPriceFeed];
 
-        vm.startBroadcast();
+        vm.startBroadcast(deployerAddress);
         DecentralizedStableCoin dsc = new DecentralizedStableCoin();
         DSCEngine dscEngine = new DSCEngine(
             tokenAddresses,

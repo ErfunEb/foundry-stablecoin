@@ -5,6 +5,7 @@ import {DecentralizedStableCoin} from "src/DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import {console} from "forge-std/console.sol";
 
 /*
  * @title DSCEngine
@@ -35,7 +36,7 @@ contract DSCEngine is ReentrancyGuard {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATE_THRESHOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
-    uint256 private constant MIN_HEALTH_FACTOR = 1;
+    uint256 public constant MIN_HEALTH_FACTOR = 1;
     uint256 private constant LIQUIDATION_BONUS = 10;
     DecentralizedStableCoin private immutable DSC;
     mapping(address token => address priceFeed) private priceFeeds;
@@ -247,7 +248,9 @@ contract DSCEngine is ReentrancyGuard {
             (uint256(price) * ADDITIONAL_FEED_PRECISION);
     }
 
-    function getHealthFactor() external view {}
+    function getHealthFactor(address user) external view returns (uint256) {
+        return _healthFactor(user);
+    }
 
     function getAccountCollateralValue(
         address user
@@ -301,6 +304,9 @@ contract DSCEngine is ReentrancyGuard {
         address tokenCollateralAddress,
         uint256 amountCollateral
     ) private {
+        console.log("Hi1");
+        console.log("A: ", amountCollateral);
+        console.log("B: ", collateralDeposited[from][tokenCollateralAddress]);
         collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
         emit CollateralRedeemed(
             from,
@@ -308,6 +314,7 @@ contract DSCEngine is ReentrancyGuard {
             tokenCollateralAddress,
             amountCollateral
         );
+        console.log("Hi2");
         bool success = IERC20(tokenCollateralAddress).transfer(
             to,
             amountCollateral
@@ -338,6 +345,10 @@ contract DSCEngine is ReentrancyGuard {
             uint256 collateralValueInUsd
         ) = _getAccountInformation(user);
 
+        if (totalDscMinted == 0) {
+            return type(uint256).max;
+        }
+
         uint256 collateralAdjustForThreshold = (collateralValueInUsd *
             LIQUIDATE_THRESHOLD) / LIQUIDATION_PRECISION;
 
@@ -355,5 +366,16 @@ contract DSCEngine is ReentrancyGuard {
         address user
     ) external view returns (uint256, uint256) {
         return _getAccountInformation(user);
+    }
+
+    function getCollateralTokens() public view returns (address[] memory) {
+        return collateralTokens;
+    }
+
+    function getCollateralBalanceOfUser(
+        address user,
+        address token
+    ) external view returns (uint256) {
+        return collateralDeposited[user][token];
     }
 }
