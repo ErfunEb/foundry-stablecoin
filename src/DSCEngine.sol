@@ -141,9 +141,13 @@ contract DSCEngine is ReentrancyGuard {
     function redeemCollateralForDsc(
         address tokenCollateralAddress,
         uint256 amountCollateral,
-        uint256 amountDscToMint
-    ) external {
-        burnDsc(amountDscToMint);
+        uint256 amountDscToBurn
+    )
+        external
+        moreThanZero(amountCollateral)
+        isAllowedToken(tokenCollateralAddress)
+    {
+        burnDsc(amountDscToBurn);
         redeemCollateral(tokenCollateralAddress, amountCollateral);
     }
 
@@ -193,7 +197,12 @@ contract DSCEngine is ReentrancyGuard {
         address collateral,
         address user,
         uint256 debtToCover
-    ) external moreThanZero(debtToCover) nonReentrant {
+    )
+        external
+        moreThanZero(debtToCover)
+        isAllowedToken(collateral)
+        nonReentrant
+    {
         uint256 startingUserHealthFactor = _healthFactor(user);
         if (startingUserHealthFactor >= MIN_HEALTH_FACTOR) {
             revert DSCEngine__HealthFactorOk();

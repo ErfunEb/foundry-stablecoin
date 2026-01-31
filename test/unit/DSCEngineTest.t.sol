@@ -24,6 +24,7 @@ contract DSCEngineTest is Test {
     uint256 constant AMOUNT_COLLATERAL = 10 ether;
     uint256 constant AMOUNT_MINT = 4 ether;
     uint256 constant AMOUNT_REDEEM = 2 ether;
+    uint256 constant AMOUNT_LIQUIDATE = 4000 ether; // 4,000 DSC
 
     address[] public tokenAddresses;
     address[] public priceFeedAddresses;
@@ -255,7 +256,7 @@ contract DSCEngineTest is Test {
         IERC20(weth).approve(address(dscEngine), 20 ether);
         dscEngine.depositCollateralAndMintDsc(
             weth,
-            20 ether, // 10 ether worth of $30,000
+            20 ether, // 20 ether worth of $60,000
             20000 ether
         );
         vm.stopPrank();
@@ -274,8 +275,8 @@ contract DSCEngineTest is Test {
         uint256 userStartingHealthFactor = dscEngine.getHealthFactor(user);
 
         vm.startPrank(liquidator);
-        dsc.approve(address(dscEngine), 150000 ether);
-        dscEngine.liquidate(weth, user, 4000 ether);
+        dsc.approve(address(dscEngine), type(uint256).max);
+        dscEngine.liquidate(weth, user, AMOUNT_LIQUIDATE);
         vm.stopPrank();
         uint256 userEndingHealthFactor = dscEngine.getHealthFactor(user);
         uint256 liquidatorHealthFactor = dscEngine.getHealthFactor(liquidator);
@@ -286,7 +287,7 @@ contract DSCEngineTest is Test {
         uint256 userCollateralValue = dscEngine.getAccountCollateralValue(user);
         uint256 redeemCollateralValue = (dscEngine.getTokenAmountFromUsd(
             weth,
-            4000 ether
+            AMOUNT_LIQUIDATE
         ) * 110) / 100;
         uint256 userCollateralAmount = 10 ether - redeemCollateralValue;
 
@@ -297,7 +298,9 @@ contract DSCEngineTest is Test {
 
         uint256 liquidatorBalance = dsc.balanceOf(liquidator);
 
-        assert(liquidatorBalance == liquidatorStartingBalance - 4000 ether);
+        assert(
+            liquidatorBalance == liquidatorStartingBalance - AMOUNT_LIQUIDATE
+        );
         assert(userCollateralValue == expectedCollateralValue);
 
         uint256 liquidatorCollateralAmount = ERC20Mock(weth).balanceOf(
@@ -308,8 +311,6 @@ contract DSCEngineTest is Test {
             liquidatorCollateralAmount ==
                 liquidatorCollateralAmount - liquidatorStartingWETHBalance
         );
-
-        // assert user total dsc token
     }
 
     function testLiquidateRevertsIfHealthFactorNotImproved()
