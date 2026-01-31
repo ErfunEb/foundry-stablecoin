@@ -10,6 +10,10 @@ contract MockV3Aggregator {
         priceData = _priceData;
     }
 
+    function setPriceData(uint256 _priceData) external {
+        priceData = _priceData;
+    }
+
     function latestAnswer() external pure returns (int256) {
         return 0;
     }

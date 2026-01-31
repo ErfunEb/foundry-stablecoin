@@ -5,7 +5,6 @@ import {DecentralizedStableCoin} from "src/DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
-import {console} from "forge-std/console.sol";
 
 /*
  * @title DSCEngine
@@ -26,17 +25,16 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__NeedsMoreThanZero();
     error DSCEngine__TokenAddressesPriceFeedAndAddressesMustBeSameLength();
     error DSCEngine__NotAllowedToken();
-    error DSCEngine__TransferFailed();
-    error DSCEngine__BreaksHealthFactor(uint256 healthFactor);
-    error DSCEngine__MintFailed();
+    error DSCEngine__BreaksHealthFactor();
     error DSCEngine__HealthFactorOk();
     error DSCEngine__HealthFactorNotImprovemed();
+    error DSCEngine__BurnBalanceOverflow();
 
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATE_THRESHOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
-    uint256 public constant MIN_HEALTH_FACTOR = 1;
+    uint256 public constant MIN_HEALTH_FACTOR = 1e18;
     uint256 private constant LIQUIDATION_BONUS = 10;
     DecentralizedStableCoin private immutable DSC;
     mapping(address token => address priceFeed) private priceFeeds;
@@ -133,14 +131,11 @@ contract DSCEngine is ReentrancyGuard {
             amountCollateral
         );
 
-        bool success = IERC20(tokenCollateralAddress).transferFrom(
+        IERC20(tokenCollateralAddress).transferFrom(
             msg.sender,
             address(this),
             amountCollateral
         );
-        if (!success) {
-            revert DSCEngine__TransferFailed();
-        }
     }
 
     function redeemCollateralForDsc(
@@ -175,10 +170,7 @@ contract DSCEngine is ReentrancyGuard {
         dscMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender);
 
-        bool minted = DSC.mint(msg.sender, amountDscToMint);
-        if (!minted) {
-            revert DSCEngine__MintFailed();
-        }
+        DSC.mint(msg.sender, amountDscToMint);
     }
 
     function burnDsc(
@@ -227,9 +219,10 @@ contract DSCEngine is ReentrancyGuard {
         _burnDsc(debtToCover, user, msg.sender);
 
         uint256 endingUserHealthFactor = _healthFactor(user);
-        if (endingUserHealthFactor <= endingUserHealthFactor) {
+        if (endingUserHealthFactor <= startingUserHealthFactor) {
             revert DSCEngine__HealthFactorNotImprovemed();
         }
+
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
@@ -281,20 +274,15 @@ contract DSCEngine is ReentrancyGuard {
      */
     function _burnDsc(
         uint256 amountDscToBurn,
-        address onBehalfOf,
-        address dscFrom
+        address onBehalfOf, // target user
+        address dscFrom // liquidator
     ) private {
-        dscMinted[onBehalfOf] -= amountDscToBurn;
-        bool success = DSC.transferFrom(
-            dscFrom,
-            address(this),
-            amountDscToBurn
-        );
-
-        if (!success) {
-            revert DSCEngine__TransferFailed();
+        if (dscMinted[onBehalfOf] < amountDscToBurn) {
+            revert DSCEngine__BurnBalanceOverflow();
         }
 
+        dscMinted[onBehalfOf] -= amountDscToBurn;
+        DSC.transferFrom(dscFrom, address(this), amountDscToBurn);
         DSC.burn(amountDscToBurn);
     }
 
@@ -304,9 +292,6 @@ contract DSCEngine is ReentrancyGuard {
         address tokenCollateralAddress,
         uint256 amountCollateral
     ) private {
-        console.log("Hi1");
-        console.log("A: ", amountCollateral);
-        console.log("B: ", collateralDeposited[from][tokenCollateralAddress]);
         collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
         emit CollateralRedeemed(
             from,
@@ -314,14 +299,7 @@ contract DSCEngine is ReentrancyGuard {
             tokenCollateralAddress,
             amountCollateral
         );
-        console.log("Hi2");
-        bool success = IERC20(tokenCollateralAddress).transfer(
-            to,
-            amountCollateral
-        );
-        if (!success) {
-            revert DSCEngine__TransferFailed();
-        }
+        IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
     }
 
     function _getAccountInformation(
@@ -358,7 +336,7 @@ contract DSCEngine is ReentrancyGuard {
     function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _healthFactor(user);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
-            revert DSCEngine__BreaksHealthFactor(userHealthFactor);
+            revert DSCEngine__BreaksHealthFactor();
         }
     }
 

@@ -7,6 +7,7 @@ import {DSCEngine} from "src/DSCEngine.sol";
 import {DecentralizedStableCoin} from "src/DecentralizedStableCoin.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
+import {console} from "forge-std/console.sol";
 
 contract Handler is Test {
     DecentralizedStableCoin dsc;
@@ -26,7 +27,6 @@ contract Handler is Test {
     ) public {
         address collateral = _getCollateralFromSeed(collateralSeed);
         amountCollateral = bound(amountCollateral, 1, MAX_DEPOSIT_SIZE);
-
         vm.startPrank(msg.sender);
         ERC20Mock(collateral).mint(msg.sender, amountCollateral);
         IERC20(collateral).approve(address(dscEngine), amountCollateral);
@@ -64,8 +64,9 @@ contract Handler is Test {
         }
         // forge-lint: disable-next-line(unsafe-typecast)
         amount = bound(amount, 1, uint256(maxDscToMint));
-        vm.prank(user);
+        vm.startPrank(user);
         dscEngine.mintDsc(amount);
+        vm.stopPrank();
     }
 
     function redeemCollateral(
@@ -82,13 +83,31 @@ contract Handler is Test {
             return;
         }
 
-        uint256 healthFactor = dscEngine.getHealthFactor(msg.sender);
+        (uint256 totalDscMinted, uint256 collateralValueInUsd) = dscEngine
+            .getAccountInformation(msg.sender);
+
+        uint256 collateralValueAfterRedeem = collateralValueInUsd -
+            dscEngine.getUsdValue(collateral, amountCollateral);
+
+        uint256 expectedHealthFactor;
+        if (totalDscMinted == 0) {
+            expectedHealthFactor = type(uint256).max;
+        } else {
+            expectedHealthFactor =
+                (((collateralValueAfterRedeem * 50) / 100) * 1e18) /
+                totalDscMinted;
+        }
 
         vm.startPrank(msg.sender);
-        if (healthFactor < dscEngine.MIN_HEALTH_FACTOR()) {
+        if (expectedHealthFactor < dscEngine.MIN_HEALTH_FACTOR()) {
             vm.expectRevert(DSCEngine.DSCEngine__BreaksHealthFactor.selector);
         }
         dscEngine.redeemCollateral(collateral, amountCollateral);
         vm.stopPrank();
     }
+
+    // BURN DSC
+    // LIQUIDATE
+    // DEPOSIT AND MINT
+    // REDEEM AND BURN
 }
