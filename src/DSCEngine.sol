@@ -28,8 +28,8 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__NotAllowedToken();
     error DSCEngine__BreaksHealthFactor();
     error DSCEngine__HealthFactorOk();
-    error DSCEngine__HealthFactorNotImprovemed();
     error DSCEngine__BurnBalanceOverflow();
+    error DSCEngine__CollateralBalanceOverflow();
 
     using OracleLib for AggregatorV3Interface;
 
@@ -57,6 +57,14 @@ contract DSCEngine is ReentrancyGuard {
         address indexed redeemedTo,
         address indexed token,
         uint256 amount
+    );
+
+    event Liquidation(
+        address indexed liquidator,
+        address indexed user,
+        address collateral,
+        uint256 debtCovered,
+        uint256 collateralSeized
     );
 
     modifier moreThanZero(uint256 amount) {
@@ -235,20 +243,20 @@ contract DSCEngine is ReentrancyGuard {
         uint256 totalCollateralToRedeem = tokenAmountFromDebtCovered +
             bonusCollateral;
 
+        _burnDsc(debtToCover, user, msg.sender);
         _redeemCollateral(
             user,
             msg.sender,
             collateral,
             totalCollateralToRedeem
         );
-        _burnDsc(debtToCover, user, msg.sender);
-
-        uint256 endingUserHealthFactor = _healthFactor(user);
-        if (endingUserHealthFactor <= startingUserHealthFactor) {
-            revert DSCEngine__HealthFactorNotImprovemed();
-        }
-
-        _revertIfHealthFactorIsBroken(msg.sender);
+        emit Liquidation(
+            msg.sender,
+            user,
+            collateral,
+            debtToCover,
+            totalCollateralToRedeem
+        );
     }
 
     function _burnDsc(
@@ -271,6 +279,14 @@ contract DSCEngine is ReentrancyGuard {
         address tokenCollateralAddress,
         uint256 amountCollateral
     ) private {
+        uint256 collateralBalance = collateralDeposited[from][
+            tokenCollateralAddress
+        ];
+
+        if (collateralBalance < amountCollateral) {
+            revert DSCEngine__CollateralBalanceOverflow();
+        }
+
         collateralDeposited[from][tokenCollateralAddress] -= amountCollateral;
         emit CollateralRedeemed(
             from,

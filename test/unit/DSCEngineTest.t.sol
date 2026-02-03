@@ -313,20 +313,6 @@ contract DSCEngineTest is Test {
         );
     }
 
-    function testLiquidateRevertsIfHealthFactorNotImproved()
-        public
-        canBeLiquidated
-    {
-        MockV3Aggregator(ethUsdPriceFeed).setPriceData(1500);
-        vm.startPrank(liquidator);
-        dsc.approve(address(dscEngine), 150000 ether);
-        vm.expectRevert(
-            DSCEngine.DSCEngine__HealthFactorNotImprovemed.selector
-        );
-        dscEngine.liquidate(weth, user, 9000 ether);
-        vm.stopPrank();
-    }
-
     function testLiquidateMoreThanZero() public canBeLiquidated {
         vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
         vm.prank(liquidator);
@@ -339,17 +325,7 @@ contract DSCEngineTest is Test {
         dscEngine.liquidate(weth, user, 5000);
     }
 
-    function testLiquidateRevertsIfHealthFactorIsBroken()
-        public
-        canBeLiquidated
-    {
-        MockV3Aggregator(ethUsdPriceFeed).setPriceData(1800);
-        vm.startPrank(liquidator);
-        dsc.approve(address(dscEngine), 150000 ether);
-        vm.expectRevert(DSCEngine.DSCEngine__BreaksHealthFactor.selector);
-        dscEngine.liquidate(weth, user, 10001 ether);
-        vm.stopPrank();
-    }
+    // write a test where a liquidator has no collateral, some DSC, and see how your current vs updated liquidation behaves. That’s where the difference really shows up.
 
     // function testDepositCollateralEmitsEvent() public {} Event name: CollateralDeposited
     // function testRedeemCollateralEmitsAnEvent() {}
