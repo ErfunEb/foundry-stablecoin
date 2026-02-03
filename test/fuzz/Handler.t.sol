@@ -98,8 +98,10 @@ contract Handler is Test {
                 totalDscMinted;
         }
 
+        uint256 minHealthFactor = dscEngine.getMinHealthFactor();
+
         vm.startPrank(msg.sender);
-        if (expectedHealthFactor < dscEngine.MIN_HEALTH_FACTOR()) {
+        if (expectedHealthFactor < minHealthFactor) {
             vm.expectRevert(DSCEngine.DSCEngine__BreaksHealthFactor.selector);
         }
         dscEngine.redeemCollateral(collateral, amountCollateral);
