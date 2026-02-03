@@ -74,7 +74,7 @@ contract MockV3Aggregator {
             // forge-lint: disable-next-line(unsafe-typecast)
             int256(priceData * 10 ** decimals),
             uint256(163826896),
-            uint256(1638268960),
+            uint256(block.timestamp),
             uint80(73786976294838220258)
         );
     }
