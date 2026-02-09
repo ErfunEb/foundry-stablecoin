@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {DeployDSC} from "script/DeployDSC.s.sol";
 import {HelperConfig} from "script/HelperConfig.s.sol";
 import {DecentralizedStableCoin} from "src/DecentralizedStableCoin.sol";
@@ -9,6 +10,8 @@ import {DSCEngine} from "src/DSCEngine.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 import {MockV3Aggregator} from "test/mocks/MockV3Aggregator.sol";
+import {console} from "forge-std/console.sol";
+import {OracleLib} from "src/libraries/OracleLib.sol";
 
 contract DSCEngineTest is Test {
     DeployDSC deployer;
@@ -20,6 +23,8 @@ contract DSCEngineTest is Test {
     address weth;
     address public user = makeAddr("user");
     address liquidator = makeAddr("liquidator");
+    address liquidator2 = makeAddr("liquidator2");
+    ERC20Mock someToken;
 
     uint256 constant AMOUNT_COLLATERAL = 10 ether;
     uint256 constant AMOUNT_MINT = 4 ether;
@@ -38,6 +43,9 @@ contract DSCEngineTest is Test {
 
         vm.prank(deployerAddress);
         ERC20Mock(weth).mint(user, AMOUNT_COLLATERAL);
+
+        vm.prank(user);
+        someToken = new ERC20Mock("Some Token", "ST");
     }
 
     function testGetUsdValue() public view {
@@ -77,9 +85,6 @@ contract DSCEngineTest is Test {
     }
 
     function testRevertsWithUnapprovedCollateral() public {
-        vm.prank(user);
-        ERC20Mock someToken = new ERC20Mock("Some Token", "ST");
-
         vm.startPrank(user);
         vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);
         dscEngine.depositCollateral(address(someToken), 100);
@@ -257,8 +262,9 @@ contract DSCEngineTest is Test {
         dscEngine.depositCollateralAndMintDsc(
             weth,
             20 ether, // 20 ether worth of $60,000
-            20000 ether
+            25000 ether
         );
+        dsc.transfer(liquidator2, AMOUNT_LIQUIDATE);
         vm.stopPrank();
         _;
     }
@@ -322,11 +328,210 @@ contract DSCEngineTest is Test {
     function testLiquidateHealthFactorOkReverts() public canBeLiquidated {
         vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
         vm.prank(liquidator);
-        dscEngine.liquidate(weth, user, 5000);
+        dscEngine.liquidate(weth, user, AMOUNT_LIQUIDATE);
     }
 
-    // write a test where a liquidator has no collateral, some DSC, and see how your current vs updated liquidation behaves. That’s where the difference really shows up.
+    function testLiquidateWithNormalUser() public canBeLiquidated {
+        MockV3Aggregator(ethUsdPriceFeed).setPriceData(2800);
 
-    // function testDepositCollateralEmitsEvent() public {} Event name: CollateralDeposited
-    // function testRedeemCollateralEmitsAnEvent() {}
+        vm.assume(IERC20(weth).balanceOf(liquidator2) == 0);
+        vm.startPrank(liquidator2);
+        dsc.approve(address(dscEngine), type(uint256).max);
+        dscEngine.liquidate(weth, user, AMOUNT_LIQUIDATE);
+        vm.stopPrank();
+
+        assertEq(dsc.balanceOf(liquidator2), 0); // AMOUNT_LIQUIDATE all covered for debt
+        assert(IERC20(weth).balanceOf(liquidator2) > 0);
+    }
+
+    function testDepositCollateralEmitsEvent() public {
+        vm.startPrank(user);
+        IERC20(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
+
+        vm.recordLogs();
+
+        dscEngine.depositCollateral(weth, AMOUNT_COLLATERAL);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        vm.stopPrank();
+
+        Vm.Log memory log = logs[0];
+        assert(log.emitter == address(dscEngine));
+
+        bytes32 expectedSignature = keccak256(
+            "CollateralDeposited(address,address,uint256)"
+        );
+        assertEq(log.topics[0], expectedSignature);
+        assertEq(log.topics[1], bytes32(uint256(uint160(address(user)))));
+        assert(log.topics[2] == bytes32(uint256(uint160(address(weth)))));
+
+        uint256 amount = abi.decode(log.data, (uint256));
+        assert(amount == AMOUNT_COLLATERAL);
+    }
+
+    function testRedeemCollateralEmitsAnEvent() public depositedCollateral {
+        vm.recordLogs();
+
+        vm.prank(user);
+        dscEngine.redeemCollateral(weth, AMOUNT_REDEEM);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        Vm.Log memory log = logs[0];
+        assert(log.emitter == address(dscEngine));
+
+        bytes32 expectedSignature = keccak256(
+            "CollateralRedeemed(address,address,address,uint256)"
+        );
+
+        assertEq(log.topics[0], expectedSignature);
+        assertEq(log.topics[1], bytes32(uint256(uint160(address(user)))));
+        assertEq(log.topics[2], bytes32(uint256(uint160(address(user)))));
+        assertEq(log.topics[3], bytes32(uint256(uint160(address(weth)))));
+
+        uint256 amount = abi.decode(log.data, (uint256));
+        assert(amount == AMOUNT_REDEEM);
+    }
+
+    function testLiquidationEmitsAnEvent() public canBeLiquidated {
+        MockV3Aggregator(ethUsdPriceFeed).setPriceData(2800);
+
+        vm.startPrank(liquidator2);
+        dsc.approve(address(dscEngine), type(uint256).max);
+        vm.recordLogs();
+        dscEngine.liquidate(weth, user, AMOUNT_LIQUIDATE);
+        vm.stopPrank();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        Vm.Log memory log = logs[4];
+        assert(log.emitter == address(dscEngine));
+
+        bytes32 expectedSignature = keccak256(
+            "Liquidation(address,address,address,uint256,uint256)"
+        );
+
+        assertEq(log.topics[0], expectedSignature);
+        assertEq(
+            log.topics[1],
+            bytes32(uint256(uint160(address(liquidator2))))
+        );
+        assertEq(log.topics[2], bytes32(uint256(uint160(address(user)))));
+
+        (
+            address collateral,
+            uint256 debtCovered,
+            uint256 collateralAmount
+        ) = abi.decode(log.data, (address, uint256, uint256));
+
+        assert(collateral == weth);
+        assert(debtCovered == AMOUNT_LIQUIDATE);
+        assert(collateralAmount == IERC20(weth).balanceOf(liquidator2));
+    }
+
+    function testBurnRevertsIfAmountExceedsBalance() public depositAndMint {
+        vm.startPrank(user);
+        dsc.approve(address(dscEngine), AMOUNT_MINT);
+        vm.expectRevert(DSCEngine.DSCEngine__BurnBalanceOverflow.selector);
+        dscEngine.burnDsc(AMOUNT_MINT + 1);
+        vm.stopPrank();
+    }
+
+    function testRedeemCollateralRevertsBalanceOverflow()
+        public
+        depositAndMint
+    {
+        vm.startPrank(user);
+        dsc.approve(address(dscEngine), AMOUNT_MINT);
+        dscEngine.burnDsc(AMOUNT_MINT);
+        vm.expectRevert(
+            DSCEngine.DSCEngine__CollateralBalanceOverflow.selector
+        );
+        dscEngine.redeemCollateral(weth, AMOUNT_COLLATERAL + 1);
+        vm.stopPrank();
+    }
+
+    function testHealthFactorGetter() public {
+        uint256 minHealthFactor = dscEngine.getMinHealthFactor();
+
+        assert(minHealthFactor > 0);
+    }
+
+    function testGetTokenPriceFeedGetter() public {
+        MockV3Aggregator wethPriceFeed = MockV3Aggregator(
+            dscEngine.getTokenPriceFeed(weth)
+        );
+
+        assert(wethPriceFeed.decimals() == 8);
+    }
+
+    function testNotAllowedTokenOnRedeemCollateral()
+        public
+        depositedCollateral
+    {
+        vm.prank(user);
+        vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);
+        dscEngine.redeemCollateral(address(someToken), AMOUNT_REDEEM);
+    }
+
+    function testRevertsWithUnapprovedCollateralOnRedeemCollateralForDsc()
+        public
+        depositAndMint
+    {
+        vm.startPrank(user);
+        dsc.approve(address(dscEngine), AMOUNT_MINT);
+
+        vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);
+        dscEngine.redeemCollateralForDsc(
+            address(someToken),
+            AMOUNT_REDEEM,
+            AMOUNT_MINT / 2
+        );
+
+        vm.stopPrank();
+    }
+
+    function testRevertsWithUnapprovedCollateralOnLiquidate()
+        public
+        canBeLiquidated
+    {
+        MockV3Aggregator(ethUsdPriceFeed).setPriceData(2800); // $200 price drop
+
+        vm.startPrank(liquidator2);
+        dsc.approve(address(dscEngine), type(uint256).max);
+
+        vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);
+        dscEngine.liquidate(address(someToken), user, AMOUNT_LIQUIDATE);
+
+        vm.stopPrank();
+    }
+
+    function testRevertsWithUnapprovedCollateralOnDepositCollateralAndMintDsc()
+        public
+    {
+        vm.startPrank(user);
+        IERC20(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
+
+        vm.expectRevert(DSCEngine.DSCEngine__NotAllowedToken.selector);
+        dscEngine.depositCollateralAndMintDsc(
+            address(someToken),
+            AMOUNT_COLLATERAL,
+            AMOUNT_MINT
+        );
+
+        vm.stopPrank();
+    }
+
+    function testOracleLibRevertsZeroPrice(uint256 amount) public {
+        amount = bound(amount, 1, type(uint96).max);
+        MockV3Aggregator(ethUsdPriceFeed).setPriceData(0);
+        vm.expectRevert(OracleLib.OracleLib__InvalidPrice.selector);
+        dscEngine.getTokenAmountFromUsd(weth, amount);
+    }
+
+    function testOracleLibRevertsStalePrice(uint256 amount) public {
+        amount = bound(amount, 1, type(uint96).max);
+        vm.warp(5 hours);
+        MockV3Aggregator(ethUsdPriceFeed).setUpdatedAt(1 hours);
+        vm.expectRevert(OracleLib.OracleLib__StalePrice.selector);
+        dscEngine.getTokenAmountFromUsd(weth, amount);
+    }
 }

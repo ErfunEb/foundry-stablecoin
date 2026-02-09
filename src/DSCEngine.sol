@@ -6,8 +6,9 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {OracleLib} from "./libraries/OracleLib.sol";
+import {console} from "forge-std/console.sol";
 
-/*
+/**
  * @title DSCEngine
  * @author Erfan Ebrahimi
  *
@@ -15,7 +16,7 @@ import {OracleLib} from "./libraries/OracleLib.sol";
  * This stablecoin has properties:
  * - Exogenous Collateral
  * - Dollar Pegged
- * -Algorithmically Stable
+ * - Algorithmically Stable
  *
  * Our DSC system should always be "overcollateralized". At no point, should the value of all collateral <= the $ backed value of all the DSC
  *
@@ -97,7 +98,7 @@ contract DSCEngine is ReentrancyGuard {
         DSC = DecentralizedStableCoin(dscAddress);
     }
 
-    /*
+    /**
      * @param tokenCollateralAddress: The address of the token to deposit as collateral
      * @param amountCollateral: The amount of collateral to deposit
      * @param amountDscToMint: The amount of centralized stablecoin to mint
@@ -112,7 +113,7 @@ contract DSCEngine is ReentrancyGuard {
         mintDsc(amountDscToMint);
     }
 
-    /*
+    /**
      * @param tokenCollateralAddress: The address of the token to deposit as collateral
      * @param amountCollateral: The amount of collateral to deposit
      */
@@ -141,7 +142,7 @@ contract DSCEngine is ReentrancyGuard {
         );
     }
 
-    /*
+    /**
      * @param tokenCollateralAddress: The ERC20 token address of the collateral you're withdrawing
      * @param amountCollateral: The amount of collateral you're withdrawing
      * @param amountDscToBurn: The amount of DSC you want to burn
@@ -160,7 +161,7 @@ contract DSCEngine is ReentrancyGuard {
         redeemCollateral(tokenCollateralAddress, amountCollateral);
     }
 
-    /*
+    /**
      * @param tokenCollateralAddress: The ERC20 token address of the collateral you're redeeming
      * @param amountCollateral: The amount of collateral you're redeeming
      * @notice This function will redeem your collateral.
@@ -184,7 +185,7 @@ contract DSCEngine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    /*
+    /**
      * @param amountDscToMint: The amount of centralized stablecoin to mint
      * @notice they must have more collateral value than the minimum threshold
      */
@@ -197,7 +198,7 @@ contract DSCEngine is ReentrancyGuard {
         DSC.mint(msg.sender, amountDscToMint);
     }
 
-    /*
+    /**
      * @notice careful! You'll burn your DSC here! Make sure you want to do this...
      * @dev you might want to use this if you're nervous you might get liquidated and want to just burn
      * your DSC but keep your collateral in.
@@ -208,7 +209,7 @@ contract DSCEngine is ReentrancyGuard {
         _burnDsc(amountDscToBurn, msg.sender, msg.sender);
     }
 
-    /*
+    /**
      * @param collateral: The erc20 collateral to liquidate from the user
      * @param user: The user who has broken the health factor. Their _healthFactor should be below MIN_HEALTH_FACTOR
      * @param debtToCover: The amount  of DSC you want to burn to improve the users health factor
@@ -250,6 +251,7 @@ contract DSCEngine is ReentrancyGuard {
             collateral,
             totalCollateralToRedeem
         );
+
         emit Liquidation(
             msg.sender,
             user,
@@ -391,7 +393,11 @@ contract DSCEngine is ReentrancyGuard {
             (amount * (uint256(price) * ADDITIONAL_FEED_PRECISION)) / PRECISION;
     }
 
-    function getMinHealthFactor() public view returns (uint256) {
+    function getMinHealthFactor() public pure returns (uint256) {
         return MIN_HEALTH_FACTOR;
+    }
+
+    function getTokenPriceFeed(address token) public view returns (address) {
+        return priceFeeds[token];
     }
 }

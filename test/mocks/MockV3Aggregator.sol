@@ -4,14 +4,20 @@ pragma solidity ^0.8.30;
 contract MockV3Aggregator {
     uint8 public decimals;
     uint256 private priceData;
+    uint256 private updatedAt;
 
     constructor(uint8 _decimals, uint256 _priceData) {
         decimals = _decimals;
         priceData = _priceData;
+        updatedAt = block.timestamp;
     }
 
     function setPriceData(uint256 _priceData) external {
         priceData = _priceData;
+    }
+
+    function setUpdatedAt(uint256 _updatedAt) external {
+        updatedAt = _updatedAt;
     }
 
     function latestAnswer() external pure returns (int256) {
@@ -65,7 +71,7 @@ contract MockV3Aggregator {
             uint80 roundId,
             int256 answer,
             uint256 startedAt,
-            uint256 updatedAt,
+            uint256 u,
             uint80 answeredInRound
         )
     {
@@ -74,7 +80,7 @@ contract MockV3Aggregator {
             // forge-lint: disable-next-line(unsafe-typecast)
             int256(priceData * 10 ** decimals),
             uint256(163826896),
-            uint256(block.timestamp),
+            uint256(updatedAt),
             uint80(73786976294838220258)
         );
     }

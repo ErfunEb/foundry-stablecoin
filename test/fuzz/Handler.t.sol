@@ -7,11 +7,13 @@ import {DSCEngine} from "src/DSCEngine.sol";
 import {DecentralizedStableCoin} from "src/DecentralizedStableCoin.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
+import {MockV3Aggregator} from "test/mocks/MockV3Aggregator.sol";
 import {console} from "forge-std/console.sol";
 
 contract Handler is Test {
     DecentralizedStableCoin dsc;
     DSCEngine dscEngine;
+    address liquidator = makeAddr("liquidator");
 
     uint256 constant MAX_DEPOSIT_SIZE = type(uint96).max;
     address[] public collateralUsersDeposited;
@@ -44,6 +46,15 @@ contract Handler is Test {
         return collateralTokens[randomIndex];
     }
 
+    function _priceDecrease(address collateral) private {
+        address priceFeed = dscEngine.getTokenPriceFeed(collateral);
+        (, int256 currentPrice, , , ) = MockV3Aggregator(priceFeed)
+            .latestRoundData();
+        MockV3Aggregator(priceFeed).setPriceData(
+            ((uint256(currentPrice) / 1e8) * 95) / 100
+        );
+    }
+
     function mintDsc(uint256 amount, uint256 accountSeed) public {
         if (collateralUsersDeposited.length == 0) {
             return;
@@ -54,7 +65,7 @@ contract Handler is Test {
 
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = dscEngine
             .getAccountInformation(user);
-        // forge-lint: disable-next-line(unsafe-typecast)
+        // // forge-lint: disable-next-line(unsafe-typecast)
         int256 maxDscToMint = (int256(collateralValueInUsd) / 2) -
             // forge-lint: disable-next-line(unsafe-typecast)
             int256(totalDscMinted);
@@ -108,8 +119,77 @@ contract Handler is Test {
         vm.stopPrank();
     }
 
-    // BURN DSC
-    // LIQUIDATE
-    // DEPOSIT AND MINT
-    // REDEEM AND BURN
+    function burnDsc(uint256 accountSeed, uint256 burnAmount) public {
+        if (collateralUsersDeposited.length == 0) {
+            return;
+        }
+
+        uint256 userIndex = accountSeed % collateralUsersDeposited.length;
+        address user = collateralUsersDeposited[userIndex];
+
+        (uint256 totalDscMinted, ) = dscEngine.getAccountInformation(user);
+        uint256 dscBalance = dsc.balanceOf(user);
+
+        if (totalDscMinted == 0 || dscBalance == 0) {
+            return;
+        }
+
+        burnAmount = bound(burnAmount, 1, totalDscMinted);
+
+        vm.startPrank(user);
+        dsc.approve(address(dscEngine), type(uint256).max);
+        if (burnAmount == 0) {
+            vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
+        }
+        dscEngine.burnDsc(burnAmount);
+        vm.stopPrank();
+    }
+
+    function liquidate(uint256 collateralSeed, uint256 debtToCover) public {
+        address collateral = _getCollateralFromSeed(collateralSeed);
+        _priceDecrease(collateral);
+
+        for (uint256 i = 0; i < collateralUsersDeposited.length; i++) {
+            address user = collateralUsersDeposited[i];
+            uint256 hf = dscEngine.getHealthFactor(user);
+            uint256 balance = dscEngine.getCollateralBalanceOfUser(
+                user,
+                collateral
+            );
+
+            if (balance == 0 || hf >= dscEngine.getMinHealthFactor()) {
+                continue;
+            }
+
+            (uint256 totalDscMinted, uint256 collateralValueInUsd) = dscEngine
+                .getAccountInformation(user);
+
+            uint256 maxDscAmount = collateralValueInUsd / 2;
+            uint256 maxDebtToCover = totalDscMinted - maxDscAmount;
+            debtToCover = bound(debtToCover, 1, maxDebtToCover);
+
+            uint256 collateralAmount = dscEngine.getTokenAmountFromUsd(
+                collateral,
+                debtToCover
+            );
+
+            uint256 collateralAmountWithBonus = (collateralAmount * 110) / 100;
+            if (collateralAmountWithBonus > balance) {
+                continue;
+            }
+
+            if (balance < collateralAmount || maxDebtToCover == 0) {
+                continue;
+            }
+
+            vm.startPrank(liquidator);
+            ERC20Mock(collateral).mint(liquidator, type(uint128).max);
+            dsc.approve(address(dscEngine), type(uint256).max);
+            IERC20(collateral).approve(address(dscEngine), type(uint256).max);
+            dscEngine.depositCollateral(collateral, type(uint128).max);
+            dscEngine.mintDsc(debtToCover);
+            dscEngine.liquidate(collateral, user, debtToCover);
+            vm.stopPrank();
+        }
+    }
 }
