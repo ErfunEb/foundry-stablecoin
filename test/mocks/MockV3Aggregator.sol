@@ -57,7 +57,7 @@ contract MockV3Aggregator {
             uint80 roundId,
             int256 answer,
             uint256 startedAt,
-            uint256 updatedAt,
+            uint256 _updatedAt,
             uint80 answeredInRound
         )
     {
@@ -71,7 +71,7 @@ contract MockV3Aggregator {
             uint80 roundId,
             int256 answer,
             uint256 startedAt,
-            uint256 u,
+            uint256 _updatedAt,
             uint80 answeredInRound
         )
     {

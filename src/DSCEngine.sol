@@ -6,7 +6,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {OracleLib} from "./libraries/OracleLib.sol";
-import {console} from "forge-std/console.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title DSCEngine
@@ -33,6 +33,8 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__CollateralBalanceOverflow();
 
     using OracleLib for AggregatorV3Interface;
+    using SafeERC20 for IERC20;
+    using SafeERC20 for DecentralizedStableCoin;
 
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
@@ -69,16 +71,12 @@ contract DSCEngine is ReentrancyGuard {
     );
 
     modifier moreThanZero(uint256 amount) {
-        if (amount == 0) {
-            revert DSCEngine__NeedsMoreThanZero();
-        }
+        _moreThanZero(amount);
         _;
     }
 
     modifier isAllowedToken(address token) {
-        if (priceFeeds[token] == address(0)) {
-            revert DSCEngine__NotAllowedToken();
-        }
+        _isAllowedToken(token);
         _;
     }
 
@@ -135,7 +133,7 @@ contract DSCEngine is ReentrancyGuard {
             amountCollateral
         );
 
-        IERC20(tokenCollateralAddress).transferFrom(
+        IERC20(tokenCollateralAddress).safeTransferFrom(
             msg.sender,
             address(this),
             amountCollateral
@@ -191,7 +189,7 @@ contract DSCEngine is ReentrancyGuard {
      */
     function mintDsc(
         uint256 amountDscToMint
-    ) public moreThanZero(amountDscToMint) nonReentrant {
+    ) public moreThanZero(amountDscToMint) {
         dscMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender);
 
@@ -271,7 +269,7 @@ contract DSCEngine is ReentrancyGuard {
         }
 
         dscMinted[onBehalfOf] -= amountDscToBurn;
-        DSC.transferFrom(dscFrom, address(this), amountDscToBurn);
+        DSC.safeTransferFrom(dscFrom, address(this), amountDscToBurn);
         DSC.burn(amountDscToBurn);
     }
 
@@ -296,7 +294,7 @@ contract DSCEngine is ReentrancyGuard {
             tokenCollateralAddress,
             amountCollateral
         );
-        IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
+        IERC20(tokenCollateralAddress).safeTransfer(to, amountCollateral);
     }
 
     function _getAccountInformation(
@@ -320,16 +318,27 @@ contract DSCEngine is ReentrancyGuard {
             return type(uint256).max;
         }
 
-        uint256 collateralAdjustForThreshold = (collateralValueInUsd *
-            LIQUIDATE_THRESHOLD) / LIQUIDATION_PRECISION;
-
-        return (collateralAdjustForThreshold * PRECISION) / totalDscMinted;
+        return
+            (collateralValueInUsd * LIQUIDATE_THRESHOLD * PRECISION) /
+            (LIQUIDATION_PRECISION * totalDscMinted);
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _healthFactor(user);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert DSCEngine__BreaksHealthFactor();
+        }
+    }
+
+    function _moreThanZero(uint256 amount) internal pure {
+        if (amount == 0) {
+            revert DSCEngine__NeedsMoreThanZero();
+        }
+    }
+
+    function _isAllowedToken(address token) internal view {
+        if (priceFeeds[token] == address(0)) {
+            revert DSCEngine__NotAllowedToken();
         }
     }
 
@@ -399,5 +408,13 @@ contract DSCEngine is ReentrancyGuard {
 
     function getTokenPriceFeed(address token) public view returns (address) {
         return priceFeeds[token];
+    }
+
+    function getLiquidateThreshold() public pure returns (uint256) {
+        return LIQUIDATE_THRESHOLD;
+    }
+
+    function getLiquidationBonus() public pure returns (uint256) {
+        return LIQUIDATION_BONUS;
     }
 }

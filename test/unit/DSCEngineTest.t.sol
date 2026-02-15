@@ -10,7 +10,6 @@ import {DSCEngine} from "src/DSCEngine.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 import {MockV3Aggregator} from "test/mocks/MockV3Aggregator.sol";
-import {console} from "forge-std/console.sol";
 import {OracleLib} from "src/libraries/OracleLib.sol";
 
 contract DSCEngineTest is Test {
@@ -30,6 +29,9 @@ contract DSCEngineTest is Test {
     uint256 constant AMOUNT_MINT = 4 ether;
     uint256 constant AMOUNT_REDEEM = 2 ether;
     uint256 constant AMOUNT_LIQUIDATE = 4000 ether; // 4,000 DSC
+    uint256 constant PERCENTAGE_PRECISION = 100;
+    uint256 constant PRICE_DECIMALS = 8;
+    uint256 constant DECIMALS_PRECISION = 1e18;
 
     address[] public tokenAddresses;
     address[] public priceFeedAddresses;
@@ -234,8 +236,7 @@ contract DSCEngineTest is Test {
         dscEngine.redeemCollateralForDsc(weth, AMOUNT_COLLATERAL, AMOUNT_MINT);
         vm.stopPrank();
 
-        (uint256 totalDscMinted, uint256 usdValue) = dscEngine
-            .getAccountInformation(user);
+        (uint256 totalDscMinted, ) = dscEngine.getAccountInformation(user);
         uint256 collateralAmount = dscEngine.getCollateralBalanceOfUser(
             user,
             weth
@@ -264,19 +265,18 @@ contract DSCEngineTest is Test {
             20 ether, // 20 ether worth of $60,000
             25000 ether
         );
-        dsc.transfer(liquidator2, AMOUNT_LIQUIDATE);
+        bool success = dsc.transfer(liquidator2, AMOUNT_LIQUIDATE);
+        require(success, "Transfer failed");
         vm.stopPrank();
         _;
     }
 
     function testLiquidateWorksAsExpected() public canBeLiquidated {
-        uint256 liquidatorStartingWETHBalance = ERC20Mock(weth).balanceOf(
+        uint256 liquidatorStartingWethBalance = ERC20Mock(weth).balanceOf(
             liquidator
         );
         uint256 liquidatorStartingBalance = dsc.balanceOf(liquidator);
         MockV3Aggregator(ethUsdPriceFeed).setPriceData(2800); // $200 price drop
-        (uint256 totalDscMinted, uint256 usdValue) = dscEngine
-            .getAccountInformation(user);
 
         uint256 userStartingHealthFactor = dscEngine.getHealthFactor(user);
 
@@ -294,7 +294,7 @@ contract DSCEngineTest is Test {
         uint256 redeemCollateralValue = (dscEngine.getTokenAmountFromUsd(
             weth,
             AMOUNT_LIQUIDATE
-        ) * 110) / 100;
+        ) * 110) / PERCENTAGE_PRECISION;
         uint256 userCollateralAmount = 10 ether - redeemCollateralValue;
 
         uint256 expectedCollateralValue = dscEngine.getUsdValue(
@@ -315,7 +315,7 @@ contract DSCEngineTest is Test {
 
         assert(
             liquidatorCollateralAmount ==
-                liquidatorCollateralAmount - liquidatorStartingWETHBalance
+                liquidatorCollateralAmount - liquidatorStartingWethBalance
         );
     }
 
@@ -449,18 +449,18 @@ contract DSCEngineTest is Test {
         vm.stopPrank();
     }
 
-    function testHealthFactorGetter() public {
+    function testHealthFactorGetter() public view {
         uint256 minHealthFactor = dscEngine.getMinHealthFactor();
 
         assert(minHealthFactor > 0);
     }
 
-    function testGetTokenPriceFeedGetter() public {
+    function testGetTokenPriceFeedGetter() public view {
         MockV3Aggregator wethPriceFeed = MockV3Aggregator(
             dscEngine.getTokenPriceFeed(weth)
         );
 
-        assert(wethPriceFeed.decimals() == 8);
+        assert(wethPriceFeed.decimals() == PRICE_DECIMALS);
     }
 
     function testNotAllowedTokenOnRedeemCollateral()

@@ -8,12 +8,17 @@ import {DecentralizedStableCoin} from "src/DecentralizedStableCoin.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {ERC20Mock} from "test/mocks/ERC20Mock.sol";
 import {MockV3Aggregator} from "test/mocks/MockV3Aggregator.sol";
-import {console} from "forge-std/console.sol";
 
 contract Handler is Test {
     DecentralizedStableCoin dsc;
     DSCEngine dscEngine;
     address liquidator = makeAddr("liquidator");
+    uint256 constant PRICE_DROP = 5;
+    uint256 constant PERCENTAGE_PRECISION = 100;
+    uint256 constant PRICE_DECIMALS = 1e8;
+    uint256 constant DECIMALS_PRECISION = 1e18;
+    uint256 immutable LIQUIDATION_BONUS;
+    uint256 immutable LIQUIDATE_THRESHOLD;
 
     uint256 constant MAX_DEPOSIT_SIZE = type(uint96).max;
     address[] public collateralUsersDeposited;
@@ -21,6 +26,8 @@ contract Handler is Test {
     constructor(DSCEngine _dscEngine, DecentralizedStableCoin _dsc) {
         dsc = _dsc;
         dscEngine = _dscEngine;
+        LIQUIDATION_BONUS = dscEngine.getLiquidationBonus();
+        LIQUIDATE_THRESHOLD = dscEngine.getLiquidateThreshold();
     }
 
     function depositCollateral(
@@ -50,8 +57,11 @@ contract Handler is Test {
         address priceFeed = dscEngine.getTokenPriceFeed(collateral);
         (, int256 currentPrice, , , ) = MockV3Aggregator(priceFeed)
             .latestRoundData();
+
         MockV3Aggregator(priceFeed).setPriceData(
-            ((uint256(currentPrice) / 1e8) * 95) / 100
+            // forge-lint: disable-next-line(unsafe-typecast)
+            (uint256(currentPrice) * (PERCENTAGE_PRECISION - PRICE_DROP)) /
+                (PERCENTAGE_PRECISION * PRICE_DECIMALS)
         );
     }
 
@@ -65,8 +75,10 @@ contract Handler is Test {
 
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = dscEngine
             .getAccountInformation(user);
-        // // forge-lint: disable-next-line(unsafe-typecast)
-        int256 maxDscToMint = (int256(collateralValueInUsd) / 2) -
+        // forge-lint: disable-next-line(unsafe-typecast)
+        int256 maxDscToMint = ((int256(collateralValueInUsd) *
+            // forge-lint: disable-next-line(unsafe-typecast)
+            int256(LIQUIDATE_THRESHOLD)) / int256(PERCENTAGE_PRECISION)) -
             // forge-lint: disable-next-line(unsafe-typecast)
             int256(totalDscMinted);
 
@@ -105,8 +117,10 @@ contract Handler is Test {
             expectedHealthFactor = type(uint256).max;
         } else {
             expectedHealthFactor =
-                (((collateralValueAfterRedeem * 50) / 100) * 1e18) /
-                totalDscMinted;
+                (collateralValueAfterRedeem *
+                    LIQUIDATE_THRESHOLD *
+                    DECIMALS_PRECISION) /
+                (totalDscMinted * PERCENTAGE_PRECISION);
         }
 
         uint256 minHealthFactor = dscEngine.getMinHealthFactor();
@@ -173,7 +187,9 @@ contract Handler is Test {
                 debtToCover
             );
 
-            uint256 collateralAmountWithBonus = (collateralAmount * 110) / 100;
+            uint256 collateralAmountWithBonus = (collateralAmount *
+                (PERCENTAGE_PRECISION + LIQUIDATION_BONUS)) /
+                PERCENTAGE_PRECISION;
             if (collateralAmountWithBonus > balance) {
                 continue;
             }
