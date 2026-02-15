@@ -315,7 +315,7 @@ contract DSCEngineTest is Test {
 
         assert(
             liquidatorCollateralAmount ==
-                liquidatorCollateralAmount - liquidatorStartingWethBalance
+                liquidatorStartingWethBalance + redeemCollateralValue
         );
     }
 
